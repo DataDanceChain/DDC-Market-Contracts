@@ -8,6 +8,7 @@ contract DDCNFT {
     // 暂停事件
     event Paused(address account);
     event Unpaused(address account);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     // 合约所有者地址
     address private _owner;
     // 存储每个 token 对应的密钥哈希（代表当前拥有者）
@@ -89,7 +90,7 @@ contract DDCNFT {
     function tokenURI(uint256 tokenId) public view returns (string memory) {
         require(_tokenKeyHashes[tokenId] != bytes32(0), "Token does not exist!");
         require(!_destroyedTokens[tokenId], "Token has been destroyed!");
-        return bytes(_baseURI).length > 0 ? string.concat(_baseURI, tokenId.toString()) : "";
+        return bytes(_baseURI).length > 0 ? string(abi.encodePacked(_baseURI, tokenId)) : "";
     }
 
     // 设置基础URI
@@ -103,8 +104,8 @@ contract DDCNFT {
         require(ownerHash != bytes32(0), "Token does not exist!");
         return ownerHash;
     }
-
-    // ERC721 - Transfer token
+    
+     // ERC721 - Transfer token
     function transfer(bytes32 toHash, uint256 tokenId, string memory key) public onlyOwner whenNotPaused {
         require(toHash != bytes32(0), "Invalid recipient hash");
         bytes32 keyHash = keccak256(abi.encodePacked(key));
@@ -126,9 +127,6 @@ contract DDCNFT {
 
         emit Transfer(fromHash, toHash, tokenId);
     }
-
-    // 转移所有权事件
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     // Mint new token
     function mint(uint256 tokenId, bytes32 keyHash) public onlyOwner whenNotPaused {
@@ -161,5 +159,4 @@ contract DDCNFT {
         emit TokenDestroyed(tokenId, keyHash);
         emit Transfer(keyHash, bytes32(0), tokenId);
     }
-
 }
