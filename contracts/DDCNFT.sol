@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./StringUtils.sol";
-
 contract DDCNFT {
+    // 暂停状态
+    bool private _paused;
+    
+    // 暂停事件
+    event Paused(address account);
+    event Unpaused(address account);
     // 合约所有者地址
     address private _owner;
     // 存储每个 token 对应的密钥哈希（代表当前拥有者）
@@ -35,6 +39,17 @@ contract DDCNFT {
         _;
     }
     
+    // 检查合约是否暂停的修饰符
+    modifier whenNotPaused() {
+        require(!_paused, "Contract is paused");
+        _;
+    }
+    
+    modifier whenPaused() {
+        require(_paused, "Contract is not paused");
+        _;    
+    }
+    
     // 获取当前所有者
     function owner() public view returns (address) {
         return _owner;
@@ -43,7 +58,21 @@ contract DDCNFT {
     // 转移所有权
     function transferOwnership(address newOwner) public onlyOwner {
         require(newOwner != address(0), "New owner is the zero address");
+        address oldOwner = _owner;
         _owner = newOwner;
+        emit OwnershipTransferred(oldOwner, newOwner);
+    }
+    
+    // 暂停合约
+    function pause() public onlyOwner whenNotPaused {
+        _paused = true;
+        emit Paused(msg.sender);
+    }
+    
+    // 恢复合约
+    function unpause() public onlyOwner whenPaused {
+        _paused = false;
+        emit Unpaused(msg.sender);
     }
 
     // ERC721 Metadata - Name
@@ -60,7 +89,7 @@ contract DDCNFT {
     function tokenURI(uint256 tokenId) public view returns (string memory) {
         require(_tokenKeyHashes[tokenId] != bytes32(0), "Token does not exist!");
         require(!_destroyedTokens[tokenId], "Token has been destroyed!");
-        return bytes(_baseURI).length > 0 ? string.concat(baseURI, tokenId.toString()) : "";
+        return bytes(_baseURI).length > 0 ? string.concat(_baseURI, tokenId.toString()) : "";
     }
 
     // 设置基础URI
@@ -76,7 +105,7 @@ contract DDCNFT {
     }
 
     // ERC721 - Transfer token
-    function transfer(bytes32 toHash, uint256 tokenId, string memory key) public onlyOwner {
+    function transfer(bytes32 toHash, uint256 tokenId, string memory key) public onlyOwner whenNotPaused {
         require(toHash != bytes32(0), "Invalid recipient hash");
         bytes32 keyHash = keccak256(abi.encodePacked(key));
         require(_tokenKeyHashes[tokenId] == keyHash, "Not authorized");
@@ -102,48 +131,35 @@ contract DDCNFT {
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     // Mint new token
-    function mint(uint256 tokenId, bytes32 keyHash) public onlyOwner {
+    function mint(uint256 tokenId, bytes32 keyHash) public onlyOwner whenNotPaused {
         require(tokenId != 0, "Invalid token ID");
         require(keyHash != bytes32(0), "Invalid key hash");
         require(_tokenKeyHashes[tokenId] == bytes32(0), "Token already minted!");
         require(!_destroyedTokens[tokenId], "Token was previously destroyed");
         
+        require(_totalSupply + 1 > _totalSupply, "Total supply overflow");
         _tokenKeyHashes[tokenId] = keyHash;
-        _totalSupply++;
+        unchecked {
+            _totalSupply++;
+        }
         emit Transfer(bytes32(0), keyHash, tokenId);
     }
 
     // Destroy token
-    function destroy(uint256 tokenId, string memory key) public onlyOwner {
+    function destroy(uint256 tokenId, string memory key) public onlyOwner whenNotPaused {
         require(tokenId != 0, "Invalid token ID");
         require(bytes(key).length > 0, "Invalid key");
         bytes32 keyHash = keccak256(abi.encodePacked(key));
         require(_tokenKeyHashes[tokenId] == keyHash, "Incorrect key or unauthorized!");
         require(!_destroyedTokens[tokenId], "Token already destroyed");
         
+        require(_totalSupply > 0, "Total supply underflow");
         _destroyedTokens[tokenId] = true;
-        _totalSupply--;
+        unchecked {
+            _totalSupply--;
+        }
         emit TokenDestroyed(tokenId, keyHash);
         emit Transfer(keyHash, bytes32(0), tokenId);
     }
 
-    // Helper function to convert uint to string
-    function uint2str(uint256 _i) internal pure returns (string memory str) {
-        if (_i == 0) {
-            return "0";
-        }
-        uint256 j = _i;
-        uint256 length;
-        while (j != 0) {
-            length++;
-            j /= 10;
-        }
-        bytes memory bstr = new bytes(length);
-        uint256 k = length - 1;
-        while (_i != 0) {
-            bstr[k--] = bytes1(uint8(48 + _i % 10));
-            _i /= 10;
-        }
-        str = string(bstr);
-    }
 }

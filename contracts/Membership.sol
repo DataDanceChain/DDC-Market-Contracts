@@ -77,8 +77,13 @@ contract Membership {
         bytes32 tokenId = keccak256(abi.encodePacked(addressHash, _name));
         require(_tokenOwners[tokenId] == bytes32(0), "Membership: token already exists");
         
+        // 检查溢出
+        require(_totalSupply + 1 > _totalSupply, "Membership: total supply overflow");
+        require(_totalSupply + 1 > _totalSupply, "Membership: total supply overflow");
         _tokenOwners[tokenId] = addressHash;
-        _totalSupply++;
+        unchecked {
+            _totalSupply++;
+        }
         
         emit Transfer(bytes32(0), addressHash, tokenId);
     }
@@ -90,8 +95,13 @@ contract Membership {
         bytes32 tokenId = keccak256(abi.encodePacked(addressHash, _name));
         require(_tokenOwners[tokenId] == addressHash, "Membership: token does not exist or not owned by address");
         
+        // 检查下溢
+        require(_totalSupply > 0, "Membership: total supply underflow");
+        require(_totalSupply > 0, "Membership: total supply underflow");
         _tokenOwners[tokenId] = bytes32(0);
-        _totalSupply--;
+        unchecked {
+            _totalSupply--;
+        }
         
         emit Transfer(addressHash, bytes32(0), tokenId);
     }
@@ -118,7 +128,7 @@ contract Membership {
 
     function tokenURI(bytes32 tokenId) public view returns (string memory) {
         require(_tokenOwners[tokenId] != bytes32(0), "Membership: token does not exist");
-        return bytes(_baseURI).length > 0 ? string.concat(baseURI, tokenId.toString()) : "";
+        return bytes(_baseURI).length > 0 ? string.concat(_baseURI, tokenId.toString()) : "";
     }
 
     function setBaseURI(string memory baseURI_) public onlyOwner {
