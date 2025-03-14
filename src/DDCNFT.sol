@@ -2,23 +2,21 @@
 pragma solidity ^0.8.20;
 
 contract DDCNFT {
-    // 暂停状态
+    // 状态变量打包到同一个存储槽中
     bool private _paused;
+    address private _owner;
+    uint96 private _totalSupply; // 减小uint大小以适应存储槽
     
-    // 暂停事件
+    // 事件 - 减少indexed参数数量
     event Paused(address account);
     event Unpaused(address account);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    // 合约所有者地址
-    address private _owner;
+    event OwnershipTransferred(address previousOwner, address newOwner);
+    
     // 存储每个 token 对应的密钥哈希（代表当前拥有者）
     mapping(uint256 => bytes32) private _tokenKeyHashes;
 
     // 存储每个 token 是否已被销毁
     mapping(uint256 => bool) private _destroyedTokens;
-
-    // 存储token的总数
-    uint256 private _totalSupply;
 
     // Token name and symbol
     string private _name;
