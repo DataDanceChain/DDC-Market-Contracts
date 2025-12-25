@@ -2,43 +2,47 @@
 pragma solidity ^0.8.20;
 
 contract DDCNFT {
-    // 状态变量打包到同一个存储槽中
+    // State variables packed into the same storage slot for gas optimization
     bool private _paused;
     address private _owner;
-    uint96 private _totalSupply; // 减小uint大小以适应存储槽
+    uint96 private _totalSupply; // Reduced uint size to fit in the storage slot
     
-    // 事件 - 减少indexed参数数量
+    // Events
     event Paused(address account);
     event Unpaused(address account);
     event OwnershipTransferred(address previousOwner, address newOwner);
     
-    // 存储每个 token 对应的密钥哈希（代表当前拥有者）
+    // Stores the key hash representing the current owner of each token
     mapping(uint256 => bytes32) private _tokenKeyHashes;
 
-    // 存储每个 token 是否已被销毁
+    // Tracks whether each token has been destroyed
     mapping(uint256 => bool) private _destroyedTokens;
 
     // Token name and symbol
     string private _name;
     string private _symbol;
 
-    // 基础URI
+    // Global baseURI (strongly recommended - most gas-efficient)
     string private _baseURI = "";
+
+    // Per-token individual full URI (use only in special cases as an override mechanism)
+    // Note: Using this mapping consumes an additional storage slot per set token (~20,000 gas)
+    // It is strongly recommended to use the global _baseURI + tokenId approach unless
+    // certain tokens require completely different metadata URLs
+    mapping(uint256 => string) private _tokenURIs;
 
     // ERC721 Metadata
     constructor(string memory name_, string memory symbol_) {
         _name = name_;
         _symbol = symbol_;
-        _owner = msg.sender; // 设置部署者为合约所有者
+        _owner = msg.sender;
     }
     
-    // 检查调用者是否为所有者的修饰符
     modifier onlyOwner() {
         require(msg.sender == _owner, "Caller is not the owner");
         _;
     }
     
-    // 检查合约是否暂停的修饰符
     modifier whenNotPaused() {
         require(!_paused, "Contract is paused");
         _;
@@ -49,12 +53,10 @@ contract DDCNFT {
         _;    
     }
     
-    // 获取当前所有者
     function owner() public view returns (address) {
         return _owner;
     }
     
-    // 转移所有权
     function transferOwnership(address newOwner) public onlyOwner {
         require(newOwner != address(0), "New owner is the zero address");
         address oldOwner = _owner;
@@ -62,48 +64,78 @@ contract DDCNFT {
         emit OwnershipTransferred(oldOwner, newOwner);
     }
     
-    // 暂停合约
     function pause() public onlyOwner whenNotPaused {
         _paused = true;
         emit Paused(msg.sender);
     }
     
-    // 恢复合约
     function unpause() public onlyOwner whenPaused {
         _paused = false;
         emit Unpaused(msg.sender);
     }
 
-    // ERC721 Metadata - Name
     function name() public view returns (string memory) {
         return _name;
     }
 
-    // ERC721 Metadata - Symbol
     function symbol() public view returns (string memory) {
         return _symbol;
     }
 
-    // ERC721 - Token URI
+    /**
+     * @dev Returns the metadata URI for a token
+     * Priority: returns the individual URI if set for this token
+     * Fallback: returns _baseURI + tokenId (recommended low-gas method)
+     */
     function tokenURI(uint256 tokenId) public view returns (string memory) {
         require(_tokenKeyHashes[tokenId] != bytes32(0), "Token does not exist!");
         require(!_destroyedTokens[tokenId], "Token has been destroyed!");
-        return bytes(_baseURI).length > 0 ? string(abi.encodePacked(_baseURI, tokenId)) : "";
+
+        // Priority: use individual URI (override mechanism)
+        string memory specificURI = _tokenURIs[tokenId];
+        if (bytes(specificURI).length > 0) {
+            return specificURI;
+        }
+
+        // Recommended low-gas method: global baseURI + tokenId
+        if (bytes(_baseURI).length == 0) {
+            return "";
+        }
+        return string(abi.encodePacked(_baseURI, tokenId));
     }
 
-    // 设置基础URI
+    /**
+     * @dev Set the global baseURI (strongly recommended)
+     * All token URIs will automatically become baseURI + tokenId
+     * Writes to only one storage slot - extremely low gas cost
+     */
     function setBaseURI(string memory baseURI) public onlyOwner {
         _baseURI = baseURI;
     }
 
-    // ERC721 - Owner of a token
+    /**
+     * @dev Set an individual full URI for a specific token
+     * Use only when the token needs completely different metadata from others
+     * Each call consumes an additional storage slot (~20,000 gas) - not recommended for bulk use
+     */
+    function setTokenURI(uint256 tokenId, string memory uri) public onlyOwner {
+        require(_tokenKeyHashes[tokenId] != bytes32(0), "Token does not exist!");
+        require(!_destroyedTokens[tokenId], "Token has been destroyed!");
+        _tokenURIs[tokenId] = uri;
+    }
+
+    // Optional: clear the individual URI for a token to fall back to global baseURI
+    function clearTokenURI(uint256 tokenId) public onlyOwner {
+        require(_tokenKeyHashes[tokenId] != bytes32(0), "Token does not exist!");
+        delete _tokenURIs[tokenId];
+    }
+
     function ownerOf(uint256 tokenId) public view returns (bytes32) {
         bytes32 ownerHash = _tokenKeyHashes[tokenId];
         require(ownerHash != bytes32(0), "Token does not exist!");
         return ownerHash;
     }
     
-     // ERC721 - Transfer token
     function transfer(bytes32 toHash, uint256 tokenId, string memory key) public onlyOwner whenNotPaused {
         require(toHash != bytes32(0), "Invalid recipient hash");
         bytes32 keyHash = keccak256(abi.encodePacked(key));
@@ -112,21 +144,15 @@ contract DDCNFT {
         _transfer(toHash, tokenId);
     }
 
-    // 转账事件
     event Transfer(bytes32 indexed fromHash, bytes32 indexed toHash, uint256 indexed tokenId);
-    // 销毁事件
     event TokenDestroyed(uint256 indexed tokenId, bytes32 indexed ownerHash);
 
-    // Transfer logic (internal)
     function _transfer(bytes32 toHash, uint256 tokenId) internal {
         bytes32 fromHash = _tokenKeyHashes[tokenId];
-        // 更新 token 所有者哈希
         _tokenKeyHashes[tokenId] = toHash;
-
         emit Transfer(fromHash, toHash, tokenId);
     }
 
-    // Mint new token
     function mint(uint256 tokenId, bytes32 keyHash) public onlyOwner whenNotPaused {
         require(tokenId != 0, "Invalid token ID");
         require(keyHash != bytes32(0), "Invalid key hash");
@@ -135,13 +161,10 @@ contract DDCNFT {
         
         require(_totalSupply + 1 > _totalSupply, "Total supply overflow");
         _tokenKeyHashes[tokenId] = keyHash;
-        unchecked {
-            _totalSupply++;
-        }
+        unchecked { _totalSupply++; }
         emit Transfer(bytes32(0), keyHash, tokenId);
     }
 
-    // Destroy token
     function destroy(uint256 tokenId, string memory key) public onlyOwner whenNotPaused {
         require(tokenId != 0, "Invalid token ID");
         require(bytes(key).length > 0, "Invalid key");
@@ -151,9 +174,9 @@ contract DDCNFT {
         
         require(_totalSupply > 0, "Total supply underflow");
         _destroyedTokens[tokenId] = true;
-        unchecked {
-            _totalSupply--;
-        }
+        // Clean up individual URI to save future storage
+        delete _tokenURIs[tokenId];
+        unchecked { _totalSupply--; }
         emit TokenDestroyed(tokenId, keyHash);
         emit Transfer(keyHash, bytes32(0), tokenId);
     }
